@@ -83,7 +83,10 @@ idk add some more maybe if needed
 7. **Testing:** compare results across algorithms (all should give the same shortest distance), test edge cases (no path, same start and end).
 8. **Deploy + document.**
 
-*Diagrams to add:* system architecture, flowchart of "user picks → algorithm runs → animation plays", ill give this later
+
+<img width="2055" height="1502" alt="system-architecture" src="https://github.com/user-attachments/assets/9500f813-59a0-4cba-a913-7e20fb95986c" />
+<img width="1434" height="2196" alt="flowchart-user-flow" src="https://github.com/user-attachments/assets/2531ada1-d4eb-4a1f-99d9-d590b7fd4d1a" />
+
 
 ---
 
@@ -108,7 +111,14 @@ idk add some more maybe if needed
 
 **Dependencies (tentative, decide as a team):** frontend framework + canvas/SVG or a map library, backend language, Git/GitHub, JSON data files.
 
-**Use-case diagram to add:** actors = User (student) and Admin/Developer.
+**Use-case diagram to add:** 
+<img width="2287" height="1426" alt="use-case-diagram" src="https://github.com/user-attachments/assets/8b6d3998-c730-4bb6-9588-267c7ea33431" />
+
+
+`<<include>>` means the main use case always needs the other one as a required step. The arrow goes from the main use case to the included one. Running pathfinding always needs a start and end, an algorithm, the animation and the final result, so it now points to all four.
+
+`<<extend>>` means an optional add-on that only happens sometimes. The arrow goes from the optional use case to the one it extends. Search location is an optional way to select locations, Compare algorithms is optional after a run, and Adjust speed is optional during the animation.
+
 
 ### 4.0.2 Hardware Specifications
 
