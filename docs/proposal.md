@@ -120,25 +120,25 @@ idk add some more maybe if needed
 `<<extend>>` means an optional add-on that only happens sometimes. The arrow goes from the optional use case to the one it extends. Search location is an optional way to select locations, Compare algorithms is optional after a run, and Adjust speed is optional during the animation.
 
 ### 4.0.1.5 Tech Stack hahadost
-Python (3.11+)
+# Python (3.11+):
 The primary programming language for all core logic: the graph data structure, the pathfinding algorithms (Dijkstra, A*, bidirectional search), the step recorder that logs every visited node and relaxed edge for the animation, the smart search engine, and data loading. Each algorithm lives in its own plain Python module with no web code inside, so team members can develop and test them independently.
 
-Flask
+# Flask
 A lightweight Python web framework that serves the web app and exposes the routes the browser calls: fetching the campus graph, running a chosen algorithm between two locations and returning its steps as JSON, and handling search queries. Flask is simple enough for the whole team to learn quickly.
 
-HTML, CSS and JavaScript (Canvas)
+# HTML, CSS and JavaScript (Canvas)
 The browser front end. HTML and CSS build the interface: location pickers, algorithm selector, speed slider, and play/pause/step controls. A small JavaScript canvas script replays the step list returned by the backend, coloring visited nodes, the frontier, and the final shortest path in a distinct color. All pathfinding logic stays in Python, and JavaScript only handles drawing and playback.
 
-Python Standard Library
+# Python Standard Library
 Core data structures and utilities: dict for the adjacency list, heapq for the priority queue used by Dijkstra and A*, collections.deque for queue-based traversal, set for visited-node tracking, and json for reading and writing graph data files.
 
-JSON Data Files
+# JSON Data Files
 The campus map is stored as JSON: nodes with names, coordinates, and aliases, and edges with distances. The same format holds the random test graphs used early on and the real Kathmandu University campus data collected later, so swapping one for the other needs no code changes.
 
-pytest
+# pytest
 Automated testing for the algorithms. Tests check that Dijkstra, A*, and bidirectional search all return the same shortest distance on the same graphs, and that edge cases such as unreachable nodes and identical start and end are handled correctly.
 
-Git / GitHub
+# Git / GitHub
 Version control for tracking changes across all components. Each team member works on a dedicated feature branch with pull-request-based integration into main, and tasks are tracked as GitHub Issues. Hosting and deployment will be decided after the main parts of the project are complete.
 
 ### 4.0.2 Hardware Specifications
