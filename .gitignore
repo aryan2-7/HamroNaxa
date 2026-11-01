@@ -221,3 +221,5 @@ __marimo__/
 
 # project
 cache/
+.DS_Store
+
