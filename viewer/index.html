@@ -1,0 +1,418 @@
+<!--
+This is just a way to check the map that was downlaoded, not a part of the project itself, all it does it allows us to view the graphml maps in data/raw/
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KU Campus Graph Viewer</title>
+<link href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #map { position: absolute; inset: 0; background: #e8e4dc; }
+
+  .panel {
+    position: absolute; top: 12px; left: 12px; z-index: 5;
+    width: 300px; max-height: calc(100% - 24px); overflow-y: auto;
+    background: rgba(255,255,255,.96); border-radius: 10px;
+    box-shadow: 0 2px 14px rgba(0,0,0,.18); padding: 14px 16px;
+    font-size: 13px; color: #222; line-height: 1.45;
+  }
+  .panel h1 { font-size: 15px; margin: 0 0 2px; }
+  .panel .sub { color: #666; font-size: 11px; margin-bottom: 10px; word-break: break-all; }
+  .stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0 0 12px; }
+  .stats dt { color: #666; }
+  .stats dd { margin: 0; font-variant-numeric: tabular-nums; }
+  hr { border: 0; border-top: 1px solid #e4e4e4; margin: 12px 0; }
+  .legend-title { font-weight: 600; margin-bottom: 6px; }
+  .legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  .swatch { width: 16px; height: 4px; border-radius: 2px; flex: none; }
+  .legend-row .count { margin-left: auto; color: #888; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .controls button {
+    font: inherit; padding: 5px 10px; border: 1px solid #ccc; background: #fff;
+    border-radius: 6px; cursor: pointer;
+  }
+  .controls button:hover { background: #f2f2f2; }
+  .hint { color: #777; font-size: 11px; margin-top: 10px; }
+
+  #overlay {
+    position: absolute; inset: 0; z-index: 20; display: flex;
+    align-items: center; justify-content: center;
+    background: rgba(250,250,250,.92); transition: opacity .25s;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #overlay .box { text-align: center; max-width: 420px; padding: 20px; }
+  #overlay .spinner {
+    width: 34px; height: 34px; margin: 0 auto 14px;
+    border: 3px solid #ddd; border-top-color: #2c7fb8; border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  #overlay .error .spinner { display: none; }
+  #overlay .error { color: #a12; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #status { font-size: 14px; color: #333; }
+  code { background: #eee; padding: 1px 4px; border-radius: 3px; }
+  .maplibregl-popup-content { font-size: 12px; line-height: 1.4; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="panel">
+  <h1>KU Campus Graph</h1>
+  <div class="sub" id="filename">data/raw/ku_campus_1km_all.graphml</div>
+
+  <dl class="stats">
+    <dt>Nodes</dt><dd id="stat-nodes">–</dd>
+    <dt>Edges</dt><dd id="stat-edges">–</dd>
+    <dt>File size</dt><dd id="stat-size">–</dd>
+    <dt>OSM way types</dt><dd id="stat-types">–</dd>
+    <dt>Load time</dt><dd id="stat-time">–</dd>
+  </dl>
+
+  <div id="legend"></div>
+
+  <div class="controls">
+    <button id="btn-nodes" type="button">Hide nodes</button>
+    <button id="btn-fit" type="button">Fit bounds</button>
+  </div>
+
+  <div class="hint">Pan/zoom the map. Click a line to see its OSM tags. Raw data &copy; OpenStreetMap contributors (ODbL).</div>
+</div>
+
+<div id="overlay">
+  <div class="box" id="overlay-box">
+    <div class="spinner"></div>
+    <div id="status">Loading…</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<script>
+const GRAPHML_URL = "../data/raw/ku_campus_1km_all.graphml";
+
+const STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: "raster",
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }
+  },
+  layers: [{ id: "basemap", type: "raster", source: "osm" }]
+};
+
+const COLORS = {
+  trunk: "#d94801", primary: "#e6550d", secondary: "#f16913", tertiary: "#fd8d3c",
+  motorway: "#a63603", residential: "#6a51a3", unclassified: "#807dba",
+  living_street: "#9e9ac8", service: "#bcbddc", track: "#b8a352",
+  footway: "#238b45", path: "#41ab5d", pedestrian: "#74c476", steps: "#a1d99b",
+  bridleway: "#66c2a4", cycleway: "#2b8cbe", other: "#969696"
+};
+const WIDTHS = {
+  motorway: 3.2, trunk: 3.0, primary: 2.6, secondary: 2.2, tertiary: 1.8,
+  residential: 1.4, unclassified: 1.2, living_street: 1.1, service: 1.0,
+  track: 1.0, footway: 1.0, path: 1.0, pedestrian: 1.1, steps: 1.0,
+  bridleway: 1.0, cycleway: 1.0, other: 0.9
+};
+
+const $ = (id) => document.getElementById(id);
+const setStatus = (text, isError = false) => {
+  $("status").textContent = text;
+  $("overlay-box").classList.toggle("error", isError);
+  $("overlay-box").querySelector(".spinner").style.display = isError ? "none" : "";
+};
+const humanSize = (bytes) => bytes > 1048576
+  ? (bytes / 1048576).toFixed(1) + " MB"
+  : (bytes / 1024).toFixed(0) + " KB";
+
+let nodeVisibility = true;
+
+async function main() {
+  const started = performance.now();
+
+  setStatus("Downloading GraphML…");
+  const res = await fetch(GRAPHML_URL);
+  if (!res.ok) throw new Error("HTTP " + res.status + " while fetching " + GRAPHML_URL);
+  const bytes = Number(res.headers.get("content-length")) || 0;
+  const text = await res.text();
+  if (bytes) $("stat-size").textContent = humanSize(bytes);
+  else $("stat-size").textContent = humanSize(new Blob([text]).size);
+
+  setStatus("Parsing XML (" + humanSize(text.length) + ")…");
+  await nextFrame();
+  const xml = new DOMParser().parseFromString(text, "application/xml");
+  if (xml.querySelector("parsererror")) throw new Error("Could not parse the GraphML file.");
+
+  const keyNames = {};
+  for (const key of xml.getElementsByTagName("key")) {
+    keyNames[key.getAttribute("id")] = {
+      name: key.getAttribute("attr.name"),
+      domain: key.getAttribute("for")
+    };
+  }
+  const nodeKey = {};
+  for (const [id, k] of Object.entries(keyNames)) {
+    if (k.domain === "node") nodeKey[k.name] = id;
+  }
+
+  setStatus("Reading nodes…");
+  await nextFrame();
+  const coords = new Map();
+  const nodeFeatures = [];
+  for (const node of xml.getElementsByTagName("node")) {
+    let lon = null, lat = null, streetCount = 1;
+    for (const data of node.getElementsByTagName("data")) {
+      const name = keyNames[data.getAttribute("key")]?.name;
+      if (name === "x") lon = parseFloat(data.textContent);
+      else if (name === "y") lat = parseFloat(data.textContent);
+      else if (name === "street_count") streetCount = parseInt(data.textContent, 10) || 1;
+    }
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+    const id = node.getAttribute("id");
+    coords.set(id, [lon, lat]);
+    nodeFeatures.push({
+      type: "Feature",
+      properties: { id, street_count: streetCount },
+      geometry: { type: "Point", coordinates: [lon, lat] }
+    });
+  }
+
+  setStatus("Building edges…");
+  await nextFrame();
+  const edgeFeatures = [];
+  const typeCounts = {};
+  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+
+  for (const edge of xml.getElementsByTagName("edge")) {
+    const src = coords.get(edge.getAttribute("source"));
+    const dst = coords.get(edge.getAttribute("target"));
+    if (!src || !dst) continue;
+
+    const attrs = {};
+    let geometry = null;
+    for (const data of edge.getElementsByTagName("data")) {
+      const name = keyNames[data.getAttribute("key")]?.name;
+      if (!name) continue;
+      const value = data.textContent;
+      if (name === "geometry") geometry = value;
+      else attrs[name] = value;
+    }
+
+    let line = [src, dst];
+    if (geometry && geometry.startsWith("LINESTRING")) {
+      line = parseWktLine(geometry);
+      if (line.length < 2) line = [src, dst];
+    }
+
+    const highway = attrs.highway || "other";
+    typeCounts[highway] = (typeCounts[highway] || 0) + 1;
+
+    for (const [lon, lat] of line) {
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+
+    edgeFeatures.push({
+      type: "Feature",
+      properties: {
+        highway,
+        name: attrs.name || "",
+        length: Number(attrs["length"] || 0),
+        oneway: attrs.oneway || "",
+        ref: attrs.ref || "",
+        osmid: attrs.osmid || ""
+      },
+      geometry: { type: "LineString", coordinates: line }
+    });
+  }
+
+  $("stat-nodes").textContent = nodeFeatures.length.toLocaleString();
+  $("stat-edges").textContent = edgeFeatures.length.toLocaleString();
+  $("stat-types").textContent = Object.keys(typeCounts).length.toLocaleString();
+  buildLegend(typeCounts);
+
+  setStatus("Rendering map…");
+  await nextFrame();
+
+  const map = new maplibregl.Map({
+    container: "map",
+    style: STYLE,
+    center: [(minLon + maxLon) / 2, (minLat + maxLat) / 2],
+    zoom: 13,
+    attributionControl: { compact: true }
+  });
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  map.addControl(new maplibregl.ScaleControl({ unit: "metric" }));
+
+  map.on("load", () => {
+    map.addSource("edges", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: edgeFeatures }
+    });
+    map.addSource("nodes", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: nodeFeatures }
+    });
+
+    map.addLayer({
+      id: "edges-casing",
+      type: "line",
+      source: "edges",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": "#ffffff",
+        "line-width": 3.4,
+        "line-opacity": 0.55
+      }
+    });
+
+    map.addLayer({
+      id: "edges",
+      type: "line",
+      source: "edges",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": ["match", ["get", "highway"],
+          ["motorway", "motorway_link"], COLORS.motorway,
+          ["trunk", "trunk_link"], COLORS.trunk,
+          ["primary", "primary_link"], COLORS.primary,
+          ["secondary", "secondary_link"], COLORS.secondary,
+          ["tertiary", "tertiary_link"], COLORS.tertiary,
+          ["residential"], COLORS.residential,
+          ["unclassified"], COLORS.unclassified,
+          ["living_street"], COLORS.living_street,
+          ["service"], COLORS.service,
+          ["track"], COLORS.track,
+          ["footway", "path", "pedestrian", "steps", "bridleway", "corridor"], COLORS.footway,
+          ["cycleway"], COLORS.cycleway,
+          COLORS.other
+        ],
+        "line-width": ["match", ["get", "highway"],
+          ["motorway", "motorway_link"], WIDTHS.motorway,
+          ["trunk", "trunk_link"], WIDTHS.trunk,
+          ["primary", "primary_link"], WIDTHS.primary,
+          ["secondary", "secondary_link"], WIDTHS.secondary,
+          ["tertiary", "tertiary_link"], WIDTHS.tertiary,
+          ["residential"], WIDTHS.residential,
+          ["unclassified"], WIDTHS.unclassified,
+          ["living_street"], WIDTHS.living_street,
+          ["service"], WIDTHS.service,
+          ["track"], WIDTHS.track,
+          ["footway", "path", "pedestrian", "steps", "bridleway", "corridor"], WIDTHS.footway,
+          ["cycleway"], WIDTHS.cycleway,
+          WIDTHS.other
+        ]
+      }
+    });
+
+    map.addLayer({
+      id: "nodes",
+      type: "circle",
+      source: "nodes",
+      minzoom: 14,
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 1.2, 18, 3],
+        "circle-color": "#1f2933",
+        "circle-opacity": 0.55,
+        "circle-stroke-width": 0
+      }
+    });
+
+    map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 40, duration: 0 });
+
+    map.on("click", (e) => {
+      const hits = map.queryRenderedFeatures(e.point, { layers: ["edges"] });
+      if (!hits.length) return;
+      const p = hits[0].properties;
+      const rows = [
+        p.name ? "<b>" + escapeHtml(p.name) + "</b>" : "<b>Unnamed way</b>",
+        "type: " + escapeHtml(p.highway),
+        p.length ? "length: " + Math.round(Number(p.length)) + " m" : "",
+        p.oneway ? "oneway: " + escapeHtml(p.oneway) : "",
+        p.ref ? "ref: " + escapeHtml(p.ref) : "",
+        p.osmid ? "OSM id: " + escapeHtml(p.osmid) : ""
+      ].filter(Boolean);
+      new maplibregl.Popup({ closeButton: true, maxWidth: "240px" })
+        .setLngLat(e.lngLat)
+        .setHTML(rows.join("<br>"))
+        .addTo(map);
+    });
+
+    map.on("mouseenter", "edges", () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mouseleave", "edges", () => { map.getCanvas().style.cursor = ""; });
+
+    $("btn-nodes").addEventListener("click", () => {
+      nodeVisibility = !nodeVisibility;
+      map.setLayoutProperty("nodes", "visibility", nodeVisibility ? "visible" : "none");
+      $("btn-nodes").textContent = nodeVisibility ? "Hide nodes" : "Show nodes";
+    });
+    $("btn-fit").addEventListener("click", () => {
+      map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 40 });
+    });
+
+    $("stat-time").textContent = ((performance.now() - started) / 1000).toFixed(2) + " s";
+    $("overlay").classList.add("hidden");
+  });
+
+  map.on("error", (e) => {
+    if (e && e.error) console.error(e.error);
+  });
+}
+
+function parseWktLine(wkt) {
+  const inner = wkt.slice(wkt.indexOf("(") + 1, wkt.lastIndexOf(")"));
+  return inner.split(",").map((pair) => {
+    const [x, y] = pair.trim().split(/\s+/).map(Number);
+    return [x, y];
+  }).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+}
+
+function buildLegend(typeCounts) {
+  const order = [
+    "trunk", "primary", "secondary", "tertiary", "residential", "unclassified",
+    "living_street", "service", "track", "footway", "path", "pedestrian", "steps",
+    "cycleway", "bridleway"
+  ];
+  const present = order.filter((t) => typeCounts[t]);
+  const extra = Object.keys(typeCounts).filter((t) => !order.includes(t)).sort();
+  const all = present.concat(extra);
+
+  const html = ['<div class="legend-title">Edge types (line color)</div>'];
+  for (const type of all) {
+    const color = COLORS[type] || COLORS.other;
+    html.push(
+      '<div class="legend-row"><span class="swatch" style="background:' + color +
+      '"></span><span>' + escapeHtml(type) + '</span><span class="count">' +
+      typeCounts[type].toLocaleString() + "</span></div>"
+    );
+  }
+  $("legend").innerHTML = html.join("");
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function nextFrame() {
+  return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
+main().catch((err) => {
+  console.error(err);
+  setStatus(String(err.message || err) +
+    " — serve the repo over HTTP (e.g. python3 -m http.server) and open /viewer/.", true);
+});
+</script>
+</body>
+</html>
